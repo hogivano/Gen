@@ -1,18 +1,32 @@
 package id.trydev.gen.ui.activity
 
+import android.app.PendingIntent
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
+import android.view.View
+import android.widget.Button
+import android.widget.TextView
+import android.widget.Toast
+import androidx.constraintlayout.widget.ConstraintLayout
 import com.google.firebase.firestore.GeoPoint
+import com.mapbox.android.core.permissions.PermissionsListener
 import com.mapbox.api.directions.v5.MapboxDirections
+import com.mapbox.api.directions.v5.models.DirectionsResponse
 import com.mapbox.api.directions.v5.models.DirectionsRoute
 import com.mapbox.geojson.Feature
 import com.mapbox.geojson.FeatureCollection
 import com.mapbox.geojson.LineString
 import com.mapbox.geojson.Point
 import com.mapbox.mapboxsdk.Mapbox
+import com.mapbox.android.core.location.LocationEngine
+import com.mapbox.android.core.location.LocationEngineCallback
+import com.mapbox.android.core.location.LocationEngineRequest
+import com.mapbox.android.core.location.LocationEngineResult
+import com.mapbox.api.directions.v5.DirectionsCriteria
 import com.mapbox.mapboxsdk.annotations.IconFactory
 import com.mapbox.mapboxsdk.annotations.MarkerOptions
 import com.mapbox.mapboxsdk.geometry.LatLng
@@ -35,14 +49,31 @@ import com.mapbox.mapboxsdk.style.layers.PropertyFactory.lineColor
 import com.mapbox.mapboxsdk.style.layers.PropertyFactory.lineJoin
 import com.mapbox.mapboxsdk.style.layers.PropertyFactory.lineWidth
 import com.mapbox.mapboxsdk.style.layers.SymbolLayer
+import com.mapbox.mapboxsdk.style.sources.Source
 import com.mapbox.mapboxsdk.utils.BitmapUtils
+import com.mapbox.core.constants.Constants.PRECISION_6
+import com.mapbox.services.android.navigation.ui.v5.NavigationLauncher
+import com.mapbox.services.android.navigation.ui.v5.NavigationLauncherOptions
+import com.mapbox.services.android.navigation.ui.v5.route.NavigationMapRoute
+import com.mapbox.services.android.navigation.v5.navigation.MapboxNavigation
+import com.mapbox.services.android.navigation.v5.navigation.NavigationRoute
+import kotlinx.android.synthetic.*
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 
+class MainActivity : AppCompatActivity(), HomeContract.View, PermissionsListener,
+        OnMapReadyCallback, LocationEngine, Callback<DirectionsResponse> {
 
-class MainActivity : AppCompatActivity(), HomeContract.View {
     lateinit var presenter: HomePresenter
     private lateinit var mapView: MapView
     private lateinit var mapboxMap: MapboxMap
     private var start: LatLng = LatLng(-7.7326582,110.3965508)
+    private lateinit var fromPosition: Map<String, Any>
+    private lateinit var toPosition: Map<String, Any>
+    private var fromPos : Int = 0
+    private var toPos : Int = 1
+    private lateinit var listLocation : ArrayList<Map<String, Any>>
 
     private var ROUTE_LAYER_ID : String = "route-layer-id"
     private var ROUTE_SOURCE_ID: String = "route-source-id"
@@ -54,6 +85,18 @@ class MainActivity : AppCompatActivity(), HomeContract.View {
     private lateinit var client : MapboxDirections
     private lateinit var origin : Point
     private lateinit var destination : Point
+    private lateinit var navigationMapRoute: NavigationMapRoute
+    private lateinit var navigationRoute: NavigationRoute
+    private lateinit var navigation: MapboxNavigation
+    private lateinit var styles: Style
+    private lateinit var textFrom : TextView
+    private lateinit var textTo : TextView
+    private lateinit var textDistance : TextView
+    private lateinit var textClient : TextView
+    private lateinit var textDetail : TextView
+    private lateinit var btnNext : Button
+    private lateinit var btnPrev : Button
+    private lateinit var constrain : ConstraintLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +106,15 @@ class MainActivity : AppCompatActivity(), HomeContract.View {
         )
         setContentView(R.layout.activity_main)
 
+        textFrom = from
+        textTo = to
+        textDistance = distance
+        textClient = person
+        textDetail = btnDetail
+        btnNext = next
+        btnPrev = prev
+        constrain = showDetail
+
         this.mapView = idMapView
         mapView?.onCreate(savedInstanceState)
 
@@ -71,24 +123,48 @@ class MainActivity : AppCompatActivity(), HomeContract.View {
 
         mapView?.getMapAsync(OnMapReadyCallback { mapboxMap ->
             this.mapboxMap = mapboxMap
-            this.mapboxMap.setStyle(Style.MAPBOX_STREETS, object : Style.OnStyleLoaded {
-                override fun onStyleLoaded(style: Style) {
-                    val iconF = IconFactory.getInstance(applicationContext)
-                    mapboxMap.addMarker(
-                        MarkerOptions()
-                            .setPosition(start)
-                            .setIcon(iconF.fromResource(R.drawable.mapbox_mylocation_icon_bearing)
-                            )
-                    )
-
-                    origin = Point.fromLngLat(110.3965508, -7.7326582)
-                    destination = Point.fromLngLat(110.436627, -7.73344)
-
-                    initSource(style)
-                    initLayers(style)
-                }
-            })
+            presenter.getMarker()
         })
+
+        next.setOnClickListener {
+            if (toPos < listLocation.size - 1){
+                fromPosition = listLocation.get(++fromPos)
+                toPosition = listLocation.get(++toPos)
+                setOrigin(fromPosition)
+                setDestination(toPosition)
+                getRoute(styles, origin, destination)
+            } else {
+                Toast.makeText(applicationContext, "Rute sudah selesai", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        prev.setOnClickListener {
+            if (fromPos > 0){
+                fromPosition = listLocation.get(--fromPos)
+                toPosition = listLocation.get(--toPos)
+                setOrigin(fromPosition)
+                setDestination(toPosition)
+                getRoute(styles, origin, destination)
+            } else {
+                Toast.makeText(applicationContext, "Posisi masih berada di fidi agency", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun setOrigin(map: Map<String, Any>){
+        var geo = map.get("location")
+        if (geo.toString() != "null" && geo.toString() != ""){
+            geo as GeoPoint
+            origin = Point.fromLngLat(geo.longitude, geo.latitude)
+        }
+    }
+
+    fun setDestination(map: Map<String, Any>){
+        var geo = map.get("location")
+        if (geo.toString() != "null" && geo.toString() != ""){
+            geo as GeoPoint
+            destination = Point.fromLngLat(geo.longitude, geo.latitude)
+        }
     }
 
     private fun initSource(loadedMapStyle: Style){
@@ -121,38 +197,85 @@ class MainActivity : AppCompatActivity(), HomeContract.View {
         )
 
         loadedMapStyle.addLayer(routeLayer)
-
-        var b : Bitmap? = BitmapUtils.getBitmapFromDrawable(
-            resources.getDrawable(R.drawable.ic_add_location_black_24dp))
-
-        loadedMapStyle.addImage(RED_PIN_ICON_ID, b!!)
-        loadedMapStyle.addLayer(
-            SymbolLayer(ICON_LAYER_ID, ICON_SOURCE_ID).withProperties(
-                iconImage(RED_PIN_ICON_ID),
-                iconIgnorePlacement(true),
-                iconIgnorePlacement(true),
-                iconOffset(arrayOf(0f, -4f))
-            )
-        )
     }
 
-    private fun getRoute(loadedMapStyle: Style){
-    
+    private fun getRoute(loadedMapStyle: Style, origin: Point, destionation: Point){
+        client = MapboxDirections.builder()
+                .origin(origin)
+                .destination(destination)
+                .overview(DirectionsCriteria.OVERVIEW_FULL)
+            .profile(DirectionsCriteria.PROFILE_DRIVING)
+            .accessToken("sk.eyJ1IjoiaG9naXZhbm8iLCJhIjoiY2p2eGJuNmJsMDM2ZTQ5cnAzaG9mYjBvciJ9.HOlhbXIasra9WxPbHvq4Gg")
+            .build()
+        client.enqueueCall(this)
     }
 
     override fun loadData(arr: ArrayList<Map<String, Any>>) {
-        for(document in arr){
-            var geo = document.get("location")
-            if (geo.toString() != "null" && geo.toString() != ""){
-                geo as GeoPoint
-                mapboxMap.addMarker(
-                    MarkerOptions()
-                        .setPosition(LatLng(geo.latitude, geo.longitude))
-                        .setTitle(document.get("Wilayah").toString())
-                )
-                Log.e("texting", geo.latitude.toString())
+        listLocation = arr
+
+        this.mapboxMap.setStyle(Style.MAPBOX_STREETS, object : Style.OnStyleLoaded {
+            override fun onStyleLoaded(style: Style) {
+                styles = style
+
+                for(document in arr){
+                    var geo = document.get("location")
+                    if (geo.toString() != "null" && geo.toString() != ""){
+                        geo as GeoPoint
+                        mapboxMap.addMarker(
+                            MarkerOptions()
+                                .setPosition(LatLng(geo.latitude, geo.longitude))
+                                .setTitle(document.get("Wilayah").toString())
+                        )
+                    }
+                }
+
+                fromPosition = listLocation.get(0)
+                toPosition = listLocation.get(1)
+
+                setOrigin(fromPosition)
+                setDestination(toPosition)
+
+                initSource(style)
+                initLayers(style)
+
+                getRoute(style, origin, destination)
+            }
+        })
+    }
+
+    override fun onFailure(call: Call<DirectionsResponse>, t: Throwable) {
+        Toast.makeText(applicationContext, "Error " + t.message, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onResponse(call: Call<DirectionsResponse>, response: Response<DirectionsResponse>) {
+        var body = response.body()
+        if (response.body() == null){
+            Toast.makeText(applicationContext, "Token map salah", Toast.LENGTH_SHORT).show()
+        } else if (body!!.routes().size < 1){
+            Toast.makeText(applicationContext, "Tidak ditemukan jalur", Toast.LENGTH_SHORT).show()
+        }
+
+        currentRoute = body!!.routes().get(0)
+
+        if (styles.isFullyLoaded){
+            var source : GeoJsonSource? = styles?.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID)
+            if (source != null){
+                distance.text = (currentRoute.distance()?.toString()) + " M"
+                textClient.text = (toPosition.get("pelanggan") as ArrayList<Map<String, Any>>).size.toString() + " Pelanggan"
+                textFrom.text = fromPosition.get("Wilayah").toString()
+                textTo.text = toPosition.get("Wilayah").toString()
+
+                source.setGeoJson(FeatureCollection.fromFeature(
+                    Feature.fromGeometry(LineString.fromPolyline(currentRoute.geometry()!!, PRECISION_6))
+                ))
+
+                if (constrain.visibility == View.GONE){
+                    constrain.visibility = View.VISIBLE
+                }
+                Log.e("berhasil :" , "fully")
             }
         }
+
     }
 
     override fun showError(msg: String, errorCode: Int) {
@@ -166,11 +289,41 @@ class MainActivity : AppCompatActivity(), HomeContract.View {
     override fun dismissLoading() {
     }
 
+    override fun removeLocationUpdates(callback: LocationEngineCallback<LocationEngineResult>) {
+
+    }
+
+    override fun removeLocationUpdates(pendingIntent: PendingIntent?) {
+    }
+
+    override fun requestLocationUpdates(
+        request: LocationEngineRequest,
+        callback: LocationEngineCallback<LocationEngineResult>,
+        looper: Looper?
+    ) {
+    }
+
+    override fun requestLocationUpdates(request: LocationEngineRequest, pendingIntent: PendingIntent?) {
+    }
+
+    override fun getLastLocation(callback: LocationEngineCallback<LocationEngineResult>) {
+    }
+
+    override fun onExplanationNeeded(permissionsToExplain: MutableList<String>?) {
+
+    }
+
+    override fun onPermissionResult(granted: Boolean) {
+    }
+
+    override fun onMapReady(mapboxMap: MapboxMap) {
+    }
+
+
     override fun onResume() {
         super.onResume()
         presenter = HomePresenter()
         presenter.attachView(this)
-        presenter.getMarker()
 
         this.mapView.onResume()
     }

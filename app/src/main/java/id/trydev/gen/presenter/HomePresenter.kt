@@ -11,6 +11,7 @@ import id.trydev.gen.model.Wilayah
 class HomePresenter: HomeContract.Presenter {
     private lateinit var view:HomeContract.View
     private lateinit var db:FirebaseFirestore
+    private lateinit var sort : Array<Int>
 
     override fun getMarker() {
         view.showLoading()
@@ -27,7 +28,7 @@ class HomePresenter: HomeContract.Presenter {
                         arr.add(document.data)
 //                        Log.e("testing", document.id)
                     }
-                    view.loadData(arr)
+                    view.loadData(loadSort(arr))
                 } else {
                     Log.e("error in get marker", "make error in home presenter",task.exception)
                 }
@@ -38,9 +39,26 @@ class HomePresenter: HomeContract.Presenter {
     override fun attachView(mRootView: HomeContract.View) {
         view = mRootView
         db = FirebaseFirestore.getInstance()
+        sort = arrayOf(1, 2, 7, 21, 20, 18, 17, 19, 15, 14, 13, 8, 9, 10, 11, 12, 16, 5, 6, 4, 3)
     }
 
     override fun detachView() {
     }
 
+    fun loadSort(arr : ArrayList<Map<String, Any>>) : ArrayList<Map<String, Any>> {
+        var sort = getSort()
+        var new = arrayListOf<Map<String, Any>>()
+        for ((i, j) in sort.withIndex()){
+            for ((index, value) in arr.withIndex()){
+                if (j.toString() == value.get("wilayah").toString()){
+                    new.add(value)
+                }
+            }
+        }
+        return new
+    }
+
+    fun getSort() : Array<Int>{
+        return sort
+    }
 }
