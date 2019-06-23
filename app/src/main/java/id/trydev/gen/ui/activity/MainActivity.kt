@@ -1,5 +1,6 @@
 package id.trydev.gen.ui.activity
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -12,6 +13,8 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.firebase.firestore.GeoPoint
 import com.mapbox.android.core.permissions.PermissionsListener
 import com.mapbox.api.directions.v5.MapboxDirections
@@ -57,6 +60,7 @@ import com.mapbox.services.android.navigation.ui.v5.NavigationLauncherOptions
 import com.mapbox.services.android.navigation.ui.v5.route.NavigationMapRoute
 import com.mapbox.services.android.navigation.v5.navigation.MapboxNavigation
 import com.mapbox.services.android.navigation.v5.navigation.NavigationRoute
+import id.trydev.gen.ui.adapter.DetailAdapter
 import kotlinx.android.synthetic.*
 import retrofit2.Call
 import retrofit2.Callback
@@ -97,6 +101,9 @@ class MainActivity : AppCompatActivity(), HomeContract.View, PermissionsListener
     private lateinit var btnNext : Button
     private lateinit var btnPrev : Button
     private lateinit var constrain : ConstraintLayout
+    private lateinit var constrainDetail : ConstraintLayout
+    private lateinit var rv: RecyclerView
+    private lateinit var adapter: DetailAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,6 +121,8 @@ class MainActivity : AppCompatActivity(), HomeContract.View, PermissionsListener
         btnNext = next
         btnPrev = prev
         constrain = showDetail
+        rv = rvDetail
+        constrainDetail = divDetail
 
         this.mapView = idMapView
         mapView?.onCreate(savedInstanceState)
@@ -148,6 +157,18 @@ class MainActivity : AppCompatActivity(), HomeContract.View, PermissionsListener
             } else {
                 Toast.makeText(applicationContext, "Posisi masih berada di fidi agency", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        textDetail.setOnClickListener {
+            if (constrainDetail.visibility == View.GONE){
+                constrainDetail.visibility = View.VISIBLE
+                constrain.visibility = View.GONE
+            }
+        }
+
+        back.setOnClickListener {
+            constrain.visibility = View.VISIBLE
+            constrainDetail.visibility = View.GONE
         }
     }
 
@@ -214,6 +235,7 @@ class MainActivity : AppCompatActivity(), HomeContract.View, PermissionsListener
         listLocation = arr
 
         this.mapboxMap.setStyle(Style.MAPBOX_STREETS, object : Style.OnStyleLoaded {
+            @SuppressLint("WrongConstant")
             override fun onStyleLoaded(style: Style) {
                 styles = style
 
@@ -231,6 +253,10 @@ class MainActivity : AppCompatActivity(), HomeContract.View, PermissionsListener
 
                 fromPosition = listLocation.get(0)
                 toPosition = listLocation.get(1)
+
+                adapter = DetailAdapter(toPosition.get("pelanggan") as ArrayList<Map<String, Any>>, applicationContext)
+                rv.layoutManager = LinearLayoutManager(applicationContext, LinearLayoutManager.VERTICAL, false)
+                rv.adapter = adapter
 
                 setOrigin(fromPosition)
                 setDestination(toPosition)
@@ -264,6 +290,8 @@ class MainActivity : AppCompatActivity(), HomeContract.View, PermissionsListener
                 textClient.text = (toPosition.get("pelanggan") as ArrayList<Map<String, Any>>).size.toString() + " Pelanggan"
                 textFrom.text = fromPosition.get("Wilayah").toString()
                 textTo.text = toPosition.get("Wilayah").toString()
+
+                adapter.changeList(toPosition.get("pelanggan") as ArrayList<Map<String, Any>>)
 
                 source.setGeoJson(FeatureCollection.fromFeature(
                     Feature.fromGeometry(LineString.fromPolyline(currentRoute.geometry()!!, PRECISION_6))
